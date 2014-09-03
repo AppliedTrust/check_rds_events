@@ -1,0 +1,74 @@
+#!/usr/bin/python
+import argparse, json, subprocess, datetime
+from datetime import datetime, date, time, timedelta
+
+OK = 0
+WARNING = 1
+CRITICAL = 2
+
+def main():
+        parser = argparse.ArgumentParser()
+        parser.add_argument("-d", "--dbname", help="RDS DB name", required=True)
+        parser.add_argument("-r", "--region", help="AWS Region - default is us-west-1", required=False, default="us-west-1")
+        args = parser.parse_args()
+
+	starttime = datetime.now()-timedelta(days=1)
+	cmd = "aws --region=%s rds describe-events --source-type db-instance --source-identifier %s --start-time %s" % ( args.region, args.dbname, starttime.isoformat() ) 
+        try:
+		rds_events_raw = subprocess.check_output(cmd, shell=True)
+        except:
+                print "CRITICAL Unable to fetch RDS events"
+                exit(CRITICAL)
+        try:
+		rds_events = json.loads(rds_events_raw)
+        except:
+                print "CRITICAL Unable to parse RDS event JSON"
+                exit(CRITICAL)
+
+	events = []
+	overall_severity = OK
+        for event in rds_events['Events']:
+		severity = OK
+		if event['Message'] == "Backing up DB instance":
+			pass
+		elif event['Message'] == "Finished DB Instance backup":
+			pass
+		elif event['Message'] == "DB instance created":
+			severity = WARNING
+		elif event['Message'] == "DB instance restarted":
+			severity = CRITICAL
+		elif event['Message'] == "Multi-AZ instance failover started":
+			severity = CRITICAL
+		elif event['Message'] == "Multi-AZ instance failover completed":
+			severity = CRITICAL
+		elif event['Message'] == "Applying modification to allocated storage":
+			severity = CRITICAL
+		elif event['Message'] == "Finished applying modification to allocated storage":
+			severity = CRITICAL
+		else:
+			event['Message'] = "Unknown event: %s" % event['Message']
+			severity = CRITICAL
+		
+		if severity > overall_severity:
+			overall_severity = severity 
+		events.append(event['Message'])
+
+
+	if overall_severity == OK:
+		if len(events) > 0:
+			print "OK: recent RDS events: %s" % ", ".join(events)
+		else:
+			print "OK: no recent RDS events"
+		exit(OK)
+
+	elif overall_severity == WARNING:
+		print "WARNING: recent RDS events: %s" % ", ".join(events)
+		exit(WARNING)
+
+	print "CRITICAL: recent RDS events: %s" % ", ".join(events)
+	exit(CRITICAL)
+
+
+if __name__ == "__main__":
+    main()
+
